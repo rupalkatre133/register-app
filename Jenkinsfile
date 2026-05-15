@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'Jenkins-Agent' }
+    agent any
 
     tools {
         jdk 'Java21'
@@ -16,13 +16,13 @@ pipeline {
 
     stages {
 
-        stage("Cleanup Workspace") {
+        stage('Cleanup Workspace') {
             steps {
                 cleanWs()
             }
         }
 
-        stage("Checkout from SCM") {
+        stage('Checkout Code') {
             steps {
                 git branch: 'main',
                 credentialsId: 'Github-token',
@@ -30,44 +30,40 @@ pipeline {
             }
         }
 
-        stage("Build Application") {
+        stage('Build Application') {
             steps {
-                sh "mvn clean package"
+                sh 'mvn clean package'
             }
         }
 
-        stage("Test Application") {
+        stage('Run Tests') {
             steps {
-                sh "mvn test"
+                sh 'mvn test'
             }
         }
 
-        stage("SonarQube Analysis") {
+        stage('SonarQube Scan') {
             steps {
-                script {
-                    withSonarQubeEnv('sonarqube-server') {
-                        sh "mvn sonar:sonar"
-                    }
+                withSonarQubeEnv('sonarqube-server') {
+                    sh 'mvn sonar:sonar'
                 }
             }
         }
 
-        stage("Quality Gate") {
+        stage('Quality Gate') {
             steps {
                 waitForQualityGate abortPipeline: false
             }
         }
 
-        stage("Build Docker Image") {
+        stage('Build Docker Image') {
             steps {
-                script {
-                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
-                    sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest"
-                }
+                sh 'docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .'
+                sh 'docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest'
             }
         }
 
-        stage("Docker Login") {
+        stage('Docker Login') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub-credential',
@@ -75,40 +71,37 @@ pipeline {
                     passwordVariable: 'DOCKER_PASSWORD'
                 )]) {
 
-                    sh """
-                    echo \$DOCKER_PASSWORD | docker login -u \$DOCKER_USERNAME --password-stdin
-                    """
+                    sh '''
+                    echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+                    '''
                 }
             }
         }
 
-        stage("Push Docker Image") {
+        stage('Push Docker Image') {
             steps {
-                sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
-                sh "docker push ${IMAGE_NAME}:latest"
+                sh 'docker push ${IMAGE_NAME}:${IMAGE_TAG}'
+                sh 'docker push ${IMAGE_NAME}:latest'
             }
         }
 
-        stage("Trivy Scan") {
+        stage('Trivy Security Scan') {
             steps {
                 sh '''
                 docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 aquasec/trivy image \
                 ${IMAGE_NAME}:latest \
-                --no-progress \
-                --scanners vuln \
-                --exit-code 0 \
                 --severity HIGH,CRITICAL \
-                --format table
+                --no-progress
                 '''
             }
         }
 
-        stage("Cleanup Docker Images") {
+        stage('Cleanup Docker Images') {
             steps {
-                sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
-                sh "docker rmi ${IMAGE_NAME}:latest || true"
+                sh 'docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true'
+                sh 'docker rmi ${IMAGE_NAME}:latest || true'
             }
         }
     }
@@ -117,16 +110,16 @@ pipeline {
 
         success {
             emailext(
-                subject: "${env.JOB_NAME} - Build Successful",
-                body: "Build Successful. Check Jenkins Dashboard.",
+                subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Build completed successfully.",
                 to: "rupalkatre133@gmail.com"
             )
         }
 
         failure {
             emailext(
-                subject: "${env.JOB_NAME} - Build Failed",
-                body: "Build Failed. Check Jenkins Console Output.",
+                subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Build failed. Please check Jenkins console output.",
                 to: "rupalkatre133@gmail.com"
             )
         }
